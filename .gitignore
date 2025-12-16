@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+myenv/
+venv/
+env/
+ENV/
+
+# Airflow
+logs/
+*.log
+airflow.db
+airflow.cfg
+
+# MLflow
+mlruns/
+mlflow.db
+.mlflow/
+
+# Models (large files - commit only if needed)
+models/*.pkl
+*.pkl
+
+# Data (usually too large for git)
+data/raw/*.csv
+data/processed/*.csv
+
+# Sensitive files
+service-acc-key.json
+*.json
+!package.json
+!package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+
