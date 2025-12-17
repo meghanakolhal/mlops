@@ -17,8 +17,8 @@ MODEL_GCS_PATH = "ticket_urgency_model/ticket_urgency_model.pkl"
 API_URL = os.getenv("API_URL", "https://ticket-urgency-api-7j3n5753uq-el.a.run.app")
 # Reference data (training data) - stored in GCS
 REFERENCE_DATA_GCS_PATH = "datasets/tickets.csv"
-# New/production data - for drift comparison (can be updated later)
-NEW_DATA_GCS_PATH = os.getenv("NEW_DATA_GCS_PATH", "datasets/new_tickets.csv")  # Will be created when new data arrives
+# New/production data - for drift comparison
+NEW_DATA_GCS_PATH = os.getenv("NEW_DATA_GCS_PATH", "datasets/new_tickets.csv")
 LOCAL_DATA_FALLBACK = os.path.join("data", "raw", "tickets.csv")
 
 
@@ -130,12 +130,20 @@ def main():
     print("\n1. Checking API health...")
     healthy, health_data = check_api_health()
     if healthy:
+        model_loaded = health_data.get('model_loaded', False)
         print("✅ API is healthy")
-        print(f"   Model loaded: {health_data.get('model_loaded', False)}")
+        print(f"   Model loaded: {model_loaded}")
+        if not model_loaded:
+            print("   ⚠️  WARNING: Model not loaded! Check Cloud Run logs.")
+            print(f"   Expected model path: gs://{BUCKET_NAME}/{MODEL_GCS_PATH}")
+            print("   Possible issues:")
+            print("   - Model file doesn't exist in GCS")
+            print("   - Service account lacks Storage Object Viewer permission")
+            print("   - Model failed to load on startup (check Cloud Run logs)")
     else:
         print(f"❌ API health check failed: {health_data}")
     
-    # 2. Test prediction
+    # 2. Test prediction (only if model is loaded)
     print("\n2. Testing prediction endpoint...")
     success, pred_data = test_prediction()
     if success:
@@ -144,6 +152,8 @@ def main():
         print(f"   Confidence: {pred_data.get('confidence', 0):.2f}")
     else:
         print(f"❌ Prediction test failed: {pred_data}")
+        if healthy and not health_data.get('model_loaded', False):
+            print("   → This is expected: model is not loaded in API")
     
     # 3. Check data drift
     print("\n3. Checking for data drift...")
@@ -154,26 +164,28 @@ def main():
         # Load reference data (training data) from GCS
         print(f"Loading reference data from: gs://{BUCKET_NAME}/{REFERENCE_DATA_GCS_PATH}")
         reference_data = load_data_from_gcs(BUCKET_NAME, REFERENCE_DATA_GCS_PATH, LOCAL_DATA_FALLBACK)
+        print(f"✅ Loaded {len(reference_data)} rows of reference data")
         
         # Try to load new/production data from GCS
-        # If new data doesn't exist yet, we'll compare reference to itself (no drift)
+        # If new data doesn't exist yet, skip drift check (don't compare reference to itself)
         try:
             print(f"Loading new/production data from: gs://{BUCKET_NAME}/{NEW_DATA_GCS_PATH}")
             new_data = load_data_from_gcs(BUCKET_NAME, NEW_DATA_GCS_PATH, None)
             print(f"✅ Found new data with {len(new_data)} rows")
+            
+            # Compare distributions only if new data exists
+            drift_detected, drift_report = check_data_drift(reference_data, new_data)
+            
+            if drift_detected:
+                print("⚠️  Data drift detected!")
+                print(json.dumps(drift_report, indent=2))
+            else:
+                print("✅ No significant data drift detected")
         except FileNotFoundError:
             print(f"ℹ️  New data not found at gs://{BUCKET_NAME}/{NEW_DATA_GCS_PATH}")
-            print("   Using reference data for comparison (no drift expected)")
-            new_data = reference_data.copy()
-        
-        # Compare distributions
-        drift_detected, drift_report = check_data_drift(reference_data, new_data)
-        
-        if drift_detected:
-            print("⚠️  Data drift detected!")
-            print(json.dumps(drift_report, indent=2))
-        else:
-            print("✅ No significant data drift detected")
+            print("   Skipping drift check (upload new_tickets.csv to GCS to test drift detection)")
+            drift_detected = False
+            drift_report = {}
     except Exception as e:
         print(f"⚠️  Could not check data drift: {e}")
         import traceback
