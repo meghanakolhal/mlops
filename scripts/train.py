@@ -23,7 +23,10 @@ if (
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = DEFAULT_GCP_KEY_PATH
 
 # Set paths for data and model
-DATA_PATH = os.path.join("data", "raw", "tickets.csv")
+# Load training data from GCS
+GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "ml-model-bucket-22")
+GCS_DATA_PATH = "datasets/tickets.csv"  # Data stored in GCS
+LOCAL_DATA_PATH = os.path.join("data", "raw", "tickets.csv")  # Fallback to local if GCS fails
 MODEL_DIR = "models"
 MODEL_PATH = os.path.join(MODEL_DIR, "ticket_urgency_model.pkl")
 
@@ -37,11 +40,45 @@ EXPERIMENT_NAME = "ticket_urgency_experiment"
 
 
 
-# Function to load data
-def load_data(path: str) -> pd.DataFrame:
-    print(f"Loading data from: {path}")
-    df = pd.read_csv(path)
-    return df
+# Function to load data from GCS or local fallback
+def load_data(gcs_bucket: str, gcs_path: str, local_fallback: str) -> pd.DataFrame:
+    """
+    Try to load data from GCS first, fallback to local file if GCS fails.
+    """
+    try:
+        print(f"Attempting to load data from GCS: gs://{gcs_bucket}/{gcs_path}")
+        client = storage.Client()
+        bucket = client.bucket(gcs_bucket)
+        blob = bucket.blob(gcs_path)
+        
+        if not blob.exists():
+            print(f"⚠️  File not found in GCS: gs://{gcs_bucket}/{gcs_path}")
+            print(f"Falling back to local file: {local_fallback}")
+            if os.path.exists(local_fallback):
+                df = pd.read_csv(local_fallback)
+                print(f"✅ Loaded {len(df)} rows from local file")
+                return df
+            else:
+                raise FileNotFoundError(f"Neither GCS nor local file found: {local_fallback}")
+        
+        # Download from GCS to temp file and load
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.csv', delete=False) as tmp_file:
+            blob.download_to_filename(tmp_file.name)
+            df = pd.read_csv(tmp_file.name)
+            os.unlink(tmp_file.name)  # Clean up temp file
+        
+        print(f"✅ Loaded {len(df)} rows from GCS: gs://{gcs_bucket}/{gcs_path}")
+        return df
+    except Exception as e:
+        print(f"⚠️  Failed to load from GCS: {e}")
+        print(f"Falling back to local file: {local_fallback}")
+        if os.path.exists(local_fallback):
+            df = pd.read_csv(local_fallback)
+            print(f"✅ Loaded {len(df)} rows from local file")
+            return df
+        else:
+            raise FileNotFoundError(f"Failed to load data from both GCS and local: {e}")
 
 
 # Function to prepare data: text + categorical features
@@ -202,8 +239,8 @@ def main():
     with mlflow.start_run(run_name="baseline_log_reg") as run:
         print(f"MLflow run_id: {run.info.run_id}")
 
-        # 1. Load data
-        df = load_data(DATA_PATH)
+        # 1. Load data from GCS (with local fallback)
+        df = load_data(GCS_BUCKET_NAME, GCS_DATA_PATH, LOCAL_DATA_PATH)
 
         # 2. Prepare features and target
         X, y = prepare_data(df)

@@ -14,8 +14,45 @@ import json
 # Configuration
 BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "ml-model-bucket-22")
 MODEL_GCS_PATH = "ticket_urgency_model/ticket_urgency_model.pkl"
-API_URL = os.getenv("API_URL", "https://ticket-urgency-api-xxxxx.run.app")
-DATA_PATH = os.path.join("data", "raw", "tickets.csv")
+API_URL = os.getenv("API_URL", "https://ticket-urgency-api-7j3n5753uq-el.a.run.app")
+# Reference data (training data) - stored in GCS
+REFERENCE_DATA_GCS_PATH = "datasets/tickets.csv"
+# New/production data - for drift comparison (can be updated later)
+NEW_DATA_GCS_PATH = os.getenv("NEW_DATA_GCS_PATH", "datasets/new_tickets.csv")  # Will be created when new data arrives
+LOCAL_DATA_FALLBACK = os.path.join("data", "raw", "tickets.csv")
+
+
+def load_data_from_gcs(bucket_name: str, gcs_path: str, local_fallback: str = None):
+    """
+    Load CSV data from GCS, with optional local fallback.
+    Returns pandas DataFrame.
+    """
+    try:
+        print(f"Loading data from GCS: gs://{bucket_name}/{gcs_path}")
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(gcs_path)
+        
+        if not blob.exists():
+            if local_fallback and os.path.exists(local_fallback):
+                print(f"⚠️  GCS file not found, using local fallback: {local_fallback}")
+                return pd.read_csv(local_fallback)
+            raise FileNotFoundError(f"Data not found in GCS: gs://{bucket_name}/{gcs_path}")
+        
+        # Download to temp file and load
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.csv', delete=False) as tmp_file:
+            blob.download_to_filename(tmp_file.name)
+            df = pd.read_csv(tmp_file.name)
+            os.unlink(tmp_file.name)
+        
+        print(f"✅ Loaded {len(df)} rows from GCS")
+        return df
+    except Exception as e:
+        if local_fallback and os.path.exists(local_fallback):
+            print(f"⚠️  GCS load failed: {e}, using local fallback: {local_fallback}")
+            return pd.read_csv(local_fallback)
+        raise
 
 
 def download_model():
@@ -59,23 +96,24 @@ def check_data_drift(reference_data, new_data):
 def check_api_health():
     """Check if API is responding."""
     try:
-        response = requests.get(f"{API_URL}/health", timeout=5)
+        response = requests.get(f"{API_URL}/health", timeout=15)  # Increased timeout
         return response.status_code == 200, response.json()
     except Exception as e:
         return False, {"error": str(e)}
 
 
 def test_prediction():
-    """Test API prediction endpoint."""
+    """Test API prediction endpoint with realistic test data."""
+    # Use test data similar to training data for better confidence
     test_data = {
-        "title": "Server down",
-        "description": "Production server is not responding",
-        "source": "email",
-        "customer_tier": "premium"
+        "title": "Application running slow",
+        "description": "Report export stuck at 80 percent for several minutes.",
+        "source": "web",
+        "customer_tier": "Gold"
     }
     
     try:
-        response = requests.post(f"{API_URL}/predict", json=test_data, timeout=10)
+        response = requests.post(f"{API_URL}/predict", json=test_data, timeout=15)
         if response.status_code == 200:
             return True, response.json()
         return False, {"error": f"Status {response.status_code}"}
@@ -107,13 +145,29 @@ def main():
     else:
         print(f"❌ Prediction test failed: {pred_data}")
     
-    # 3. Check data drift (if new data available)
+    # 3. Check data drift
     print("\n3. Checking for data drift...")
+    drift_detected = False
+    drift_report = {}
+    
     try:
-        reference_data = pd.read_csv(DATA_PATH)
-        # In production, fetch recent production data
-        # For now, use same data as reference
-        drift_detected, drift_report = check_data_drift(reference_data, reference_data)
+        # Load reference data (training data) from GCS
+        print(f"Loading reference data from: gs://{BUCKET_NAME}/{REFERENCE_DATA_GCS_PATH}")
+        reference_data = load_data_from_gcs(BUCKET_NAME, REFERENCE_DATA_GCS_PATH, LOCAL_DATA_FALLBACK)
+        
+        # Try to load new/production data from GCS
+        # If new data doesn't exist yet, we'll compare reference to itself (no drift)
+        try:
+            print(f"Loading new/production data from: gs://{BUCKET_NAME}/{NEW_DATA_GCS_PATH}")
+            new_data = load_data_from_gcs(BUCKET_NAME, NEW_DATA_GCS_PATH, None)
+            print(f"✅ Found new data with {len(new_data)} rows")
+        except FileNotFoundError:
+            print(f"ℹ️  New data not found at gs://{BUCKET_NAME}/{NEW_DATA_GCS_PATH}")
+            print("   Using reference data for comparison (no drift expected)")
+            new_data = reference_data.copy()
+        
+        # Compare distributions
+        drift_detected, drift_report = check_data_drift(reference_data, new_data)
         
         if drift_detected:
             print("⚠️  Data drift detected!")
@@ -122,6 +176,8 @@ def main():
             print("✅ No significant data drift detected")
     except Exception as e:
         print(f"⚠️  Could not check data drift: {e}")
+        import traceback
+        traceback.print_exc()
     
     # 4. Save monitoring report
     report = {

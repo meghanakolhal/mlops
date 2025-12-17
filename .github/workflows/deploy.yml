@@ -81,6 +81,7 @@ jobs:
             --cpu 1 \
             --timeout 300 \
             --max-instances 10 \
+            --service-account=airflow-sa@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --set-env-vars GCS_BUCKET_NAME=${{ env.GCS_BUCKET }} \
             --set-env-vars MODEL_GCS_PATH=ticket_urgency_model/ticket_urgency_model.pkl
       

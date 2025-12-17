@@ -11,19 +11,40 @@ End-to-end MLOps pipeline for training and deploying a ticket urgency classifica
 
 ## 📁 Project Structure
 
+Top-level layout (inside `airflow/`):
+
 ```
 .
-├── dags/                    # Airflow DAG definitions
-│   └── train_model.py      # Training DAG
-├── scripts/                 # Training and preprocessing scripts
-│   ├── train.py            # Main training script
-│   └── preprocess.py       # Data preprocessing
-├── data/                    # Data directory
-│   ├── raw/                # Raw data files
-│   └── processed/          # Processed data files
-├── models/                  # Trained models (local)
-├── Dockerfile              # Airflow container image
-└── docker-compose.yaml     # Local development setup
+├── dags/                         # Airflow DAG definitions
+│   └── train_model.py            # Training DAG (calls scripts.train.main)
+├── scripts/                      # Training / deployment / monitoring scripts
+│   ├── train.py                  # Main training script (logs to MLflow, uploads model to GCS)
+│   ├── preprocess.py             # (Reserved for additional preprocessing logic)
+│   ├── deploy_to_cloudrun.sh     # Manual deploy of FastAPI service to Cloud Run
+│   └── monitor_model.py          # Monitoring script (API health + basic data drift)
+├── api/                          # Model serving API (Cloud Run)
+│   ├── app.py                    # FastAPI app loading model from GCS
+│   ├── Dockerfile                # API container image (uvicorn + FastAPI)
+│   └── requirements.txt          # API dependencies (FastAPI, sklearn, etc.)
+├── data/                         # Local data (used by training / monitoring)
+│   └── raw/
+│       └── tickets.csv           # Labeled tickets used for training
+├── .github/
+│   └── workflows/
+│       └── deploy.yml            # GitHub Actions CI/CD to build & deploy API to Cloud Run
+├── Dockerfile                    # Airflow image (scheduler + webserver)
+├── docker-compose.yaml           # Local stack (Airflow + PostgreSQL + MLflow)
+├── fernet.py                     # Local Fernet key helper (for Airflow if needed)
+├── README.md                     # Project overview (this file)
+├── DEPLOYMENT_ROADMAP.md         # End-to-end deployment & roadmap
+├── TEST_API.md                   # Examples for testing API endpoints
+├── GITHUB_SETUP_GUIDE.md         # How to configure GitHub Secrets & CI/CD
+├── QUICK_START.md                # Short quick-start and common commands
+├── SETUP_MAIN_BRANCH.md          # Notes on using main branch + CI
+├── DEBUG_CLOUD_RUN.md            # Notes for debugging Cloud Run issues
+├── FIX_ASGI_ERROR.md             # Why we use uvicorn (FastAPI ASGI)
+├── FIX_PERMISSIONS.md            # Cloud Run & IAM permission fixes
+└── FIX_VERSION_MISMATCH.md       # scikit-learn version mismatch explanation
 ```
 
 ## 🚀 Quick Start
