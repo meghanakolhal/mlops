@@ -154,3 +154,18 @@ See `DEPLOYMENT_ROADMAP.md` for detailed deployment guide.
 
 This project is part of an MLOps portfolio demonstration.
 
+## Reloading Model After Retraining
+
+After retraining the model, reload it in the API without redeploying:
+
+**Windows (PowerShell/Git Bash):**
+```bash
+curl.exe -X POST https://ticket-urgency-api-7j3n5753uq-el.a.run.app/reload-model -H "Content-Length: 0"
+```
+
+**Linux/Mac:**
+```bash
+curl -X POST https://ticket-urgency-api-7j3n5753uq-el.a.run.app/reload-model -H "Content-Length: 0"
+```
+
+**Note:** Cloud Run requires a `Content-Length` header for POST requests. The `-H "Content-Length: 0"` flag satisfies this requirement.
