@@ -50,8 +50,13 @@ def download_model_from_gcs():
     # Check if model exists in cache
     if os.path.exists(MODEL_CACHE_PATH):
         logger.info(f"Loading model from cache: {MODEL_CACHE_PATH}")
-        model = joblib.load(MODEL_CACHE_PATH)
-        return
+        try:
+            model = joblib.load(MODEL_CACHE_PATH)
+            logger.info("Model loaded from cache successfully")
+            return
+        except Exception as e:
+            logger.warning(f"Failed to load cached model: {e}. Will download from GCS.")
+            os.remove(MODEL_CACHE_PATH)  # Remove corrupted cache
     
     # Download from GCS
     logger.info(f"Downloading model from gs://{BUCKET_NAME}/{MODEL_GCS_PATH}")
@@ -60,23 +65,44 @@ def download_model_from_gcs():
         bucket = client.bucket(BUCKET_NAME)
         blob = bucket.blob(MODEL_GCS_PATH)
         
+        # Check if blob exists
+        if not blob.exists():
+            error_msg = f"Model file not found: gs://{BUCKET_NAME}/{MODEL_GCS_PATH}"
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+        
+        logger.info(f"Model file exists. Size: {blob.size} bytes")
+        
         # Download to temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as tmp_file:
             blob.download_to_filename(tmp_file.name)
+            logger.info(f"Model downloaded to {tmp_file.name}")
             model = joblib.load(tmp_file.name)
             # Cache for future requests
             os.rename(tmp_file.name, MODEL_CACHE_PATH)
             logger.info("Model downloaded and cached successfully")
+    except FileNotFoundError as e:
+        logger.error(f"Model file not found: {e}")
+        raise
     except Exception as e:
         logger.error(f"Failed to download model: {e}")
-        raise HTTPException(status_code=500, detail=f"Model loading failed: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
 
 
 @app.on_event("startup")
 async def startup_event():
     """Load model when service starts."""
     logger.info("Starting up... Loading model from GCS")
-    download_model_from_gcs()
+    try:
+        download_model_from_gcs()
+        logger.info("✅ Model loaded successfully")
+    except Exception as e:
+        logger.error(f"⚠️ Model loading failed on startup: {e}")
+        logger.info("Service will start but model will be None. Model will be loaded on first prediction request.")
+        # Don't raise exception - allow service to start even if model fails to load
 
 
 @app.get("/health")
