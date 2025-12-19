@@ -168,4 +168,5 @@ curl.exe -X POST https://ticket-urgency-api-7j3n5753uq-el.a.run.app/reload-model
 curl -X POST https://ticket-urgency-api-7j3n5753uq-el.a.run.app/reload-model -H "Content-Length: 0"
 ```
 
+
 **Note:** Cloud Run requires a `Content-Length` header for POST requests. The `-H "Content-Length: 0"` flag satisfies this requirement.

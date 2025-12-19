@@ -54,9 +54,9 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./scripts:/opt/airflow/scripts
-      - ./data:/opt/airflow/data        # ✅ FIX
-      - ./models:/opt/airflow/models    # ✅ FIX
-      - ./reports:/opt/airflow/reports  # ✅ FIX
+      - ./data:/opt/airflow/data        
+      - ./models:/opt/airflow/models    
+      - ./reports:/opt/airflow/reports  
       - ./logs:/opt/airflow/logs
     ports:
       - "8085:8080"
@@ -77,9 +77,9 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./scripts:/opt/airflow/scripts
-      - ./data:/opt/airflow/data        # ✅ FIX
-      - ./models:/opt/airflow/models    # ✅ FIX
-      - ./reports:/opt/airflow/reports  # ✅ FIX
+      - ./data:/opt/airflow/data        
+      - ./models:/opt/airflow/models    
+      - ./reports:/opt/airflow/reports  
       - ./logs:/opt/airflow/logs
     command: scheduler
   

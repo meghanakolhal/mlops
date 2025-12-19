@@ -1,4 +1,5 @@
 import os
+import sys
 import joblib
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -25,7 +26,9 @@ if (
 # Set paths for data and model
 # Load training data from GCS
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "ml-model-bucket-22")
-GCS_DATA_PATH = "datasets/tickets.csv"  # Data stored in GCS
+# Use combined data if available (reference + new), otherwise use reference only
+GCS_DATA_PATH = os.getenv("GCS_DATA_PATH", "datasets/combined_tickets.csv")  # Combined data for retraining
+GCS_REFERENCE_DATA_PATH = "datasets/tickets.csv"  # Reference data (frozen snapshot)
 LOCAL_DATA_PATH = os.path.join("data", "raw", "tickets.csv")  # Fallback to local if GCS fails
 MODEL_DIR = "models"
 MODEL_PATH = os.path.join(MODEL_DIR, "ticket_urgency_model.pkl")
@@ -125,14 +128,21 @@ def upload_model_to_gcs(model_path, bucket_name, gcs_path):
         raise FileNotFoundError(f"Model file not found at {model_path}")
 
     try:
+        print(f"Uploading model to GCS: gs://{bucket_name}/{gcs_path}")
+        sys.stdout.flush()
         client = storage.Client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(gcs_path)
         blob.upload_from_filename(model_path)
         print(f"Model uploaded to gs://{bucket_name}/{gcs_path}")
+        sys.stdout.flush()
     except Exception as exc:
-        # Raise after logging so Airflow marks task as failed
+        # Log detailed error before raising
         print(f"Failed to upload model to GCS: {exc}")
+        import traceback
+        print(traceback.format_exc())
+        sys.stdout.flush()
+        # Raise after logging so Airflow marks task as failed
         raise
 
 
@@ -213,18 +223,23 @@ def evaluate_model(model, X, y, split_name: str):
     }
 
 
-# Function to save the model locally
+# Function to save the model locally and upload to GCS
 def save_model(model, path: str):
+    """Save model locally and upload to GCS"""
+    # Ensure model directory exists
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    
+    # Save model locally
     joblib.dump(model, path)
     print(f"\nSaved trained model pipeline to: {path}")
+    sys.stdout.flush()
     
-    
-    bucket_name = 'ml-model-bucket-22'  # Replace with your actual bucket name
+    # Upload to GCS
+    bucket_name = GCS_BUCKET_NAME
     destination_blob_name = 'ticket_urgency_model/ticket_urgency_model.pkl'  # Destination path in GCS
 
     # Upload to GCS (argument order: model_path, bucket_name, gcs_path)
-    upload_model_to_gcs(MODEL_PATH, bucket_name, destination_blob_name)
+    upload_model_to_gcs(path, bucket_name, destination_blob_name)
 
 
 
@@ -240,7 +255,16 @@ def main():
         print(f"MLflow run_id: {run.info.run_id}")
 
         # 1. Load data from GCS (with local fallback)
-        df = load_data(GCS_BUCKET_NAME, GCS_DATA_PATH, LOCAL_DATA_PATH)
+        # Try combined data first (for retraining), fallback to reference data
+        try:
+            df = load_data(GCS_BUCKET_NAME, GCS_DATA_PATH, LOCAL_DATA_PATH)
+            # combined data here is new data which was created for detecting data drfit
+            print(f"✅ Using combined dataset: {GCS_DATA_PATH}")
+        except FileNotFoundError:
+            print(f"⚠️  Combined data not found: {GCS_DATA_PATH}")
+            # reference dat here is old data which is being considered as so, so that data drift could be detected 
+            print(f"   Falling back to reference data: {GCS_REFERENCE_DATA_PATH}")
+            df = load_data(GCS_BUCKET_NAME, GCS_REFERENCE_DATA_PATH, LOCAL_DATA_PATH)
 
         # 2. Prepare features and target
         X, y = prepare_data(df)
@@ -279,8 +303,16 @@ def main():
         mlflow.log_metric("test_recall", test_metrics["recall"])
         mlflow.log_metric("test_f1", test_metrics["f1"])
 
-        # 7. Save trained model locally
-        save_model(model, MODEL_PATH)
+        # 7. Save trained model locally and upload to GCS
+        try:
+            save_model(model, MODEL_PATH)
+            sys.stdout.flush()  # Ensure output is flushed
+        except Exception as e:
+            print(f"\n⚠️  Error during model save/upload: {e}")
+            import traceback
+            print(traceback.format_exc())
+            sys.stdout.flush()
+            raise  # Re-raise to mark task as failed in Airflow
 
         # 8. (Optional) Log model file as MLflow artifact.
         # This can fail if the MLflow server's artifact root points to a path
@@ -289,6 +321,9 @@ def main():
         # mlflow.log_artifact(MODEL_PATH, artifact_path="model")
 
         print("\nRun finished. Metrics logged to MLflow and model saved/uploaded.")
+        print(f"\n🏃 View run baseline_log_reg at: {MLFLOW_TRACKING_URI}#/experiments/1/runs/{run.info.run_id}")
+        print(f"🧪 View experiment at: {MLFLOW_TRACKING_URI}#/experiments/1")
+        sys.stdout.flush()  # Ensure final output is flushed
 
 
 if __name__ == "__main__":
