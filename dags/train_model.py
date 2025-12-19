@@ -4,6 +4,7 @@ from airflow.operators.bash import BashOperator
 from datetime import datetime
 import sys
 import os
+import requests
 
 
 def check_model_exists():
@@ -52,6 +53,49 @@ def run_train_script():
 
     main()
 
+
+def reload_model_in_api():
+    """
+    Automatically reload the model in the API after training completes.
+    This calls the /reload-model endpoint to clear cache and load the new model.
+    """
+    api_url = os.getenv("API_URL", "https://ticket-urgency-api-7j3n5753uq-el.a.run.app")
+    reload_endpoint = f"{api_url}/reload-model"
+    
+    try:
+        print(f"🔄 Reloading model in API: {reload_endpoint}")
+        
+        # Call the reload endpoint
+        response = requests.post(
+            reload_endpoint,
+            headers={"Content-Length": "0"},
+            timeout=30  # Give it time to download model from GCS
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"✅ Model reloaded successfully!")
+            print(f"   Status: {result.get('status')}")
+            print(f"   Model loaded: {result.get('model_loaded')}")
+            print(f"   Model path: {result.get('model_path')}")
+            return True
+        else:
+            print(f"⚠️  Reload endpoint returned status {response.status_code}")
+            print(f"   Response: {response.text}")
+            # Don't fail the DAG - model reload is optional
+            return False
+            
+    except requests.exceptions.Timeout:
+        print(f"⚠️  Timeout calling reload endpoint (model may still be downloading)")
+        print(f"   You can manually reload later: curl -X POST {reload_endpoint} -H 'Content-Length: 0'")
+        return False
+    except Exception as e:
+        print(f"⚠️  Failed to reload model automatically: {e}")
+        print(f"   Model is uploaded to GCS, but API may still be using old model")
+        print(f"   You can manually reload: curl -X POST {reload_endpoint} -H 'Content-Length: 0'")
+        # Don't fail the DAG - model reload is optional
+        return False
+
 # Define the default_args for the DAG
 default_args = {
     'owner': 'airflow',
@@ -70,10 +114,12 @@ dag = DAG(
     catchup=False,
 )
 
-# Define the task in the DAG
-train_task = PythonOperator(
-    task_id='train_ticket_urgency_model',
-    python_callable=run_train_script,
+# Define the tasks in the DAG
+
+# Example: BashOperator (simple bash command - works without external tools)
+print_info_task = BashOperator(
+    task_id='print_environment_info',
+    bash_command='echo "Training DAG started at $(date)" && echo "Python version: $(python --version)" && ls -la /opt/airflow/scripts/ | head -5',
     dag=dag,
 )
 
@@ -84,12 +130,19 @@ check_model_task = PythonOperator(
     dag=dag,
 )
 
-# Example: BashOperator (simple bash command - works without external tools)
-print_info_task = BashOperator(
-    task_id='print_environment_info',
-    bash_command='echo "Training DAG started at $(date)" && echo "Python version: $(python --version)" && ls -la /opt/airflow/scripts/ | head -5',
+# Training task
+train_task = PythonOperator(
+    task_id='train_ticket_urgency_model',
+    python_callable=run_train_script,
     dag=dag,
 )
 
-# Task dependencies: print_info -> check_model -> train
-print_info_task >> check_model_task >> train_task
+# Automatic model reload task (runs after training succeeds)
+reload_model_task = PythonOperator(
+    task_id='reload_model_in_api',
+    python_callable=reload_model_in_api,
+    dag=dag,
+)
+
+# Task dependencies: print_info -> check_model -> train -> reload_model
+print_info_task >> check_model_task >> train_task >> reload_model_task
