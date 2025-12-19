@@ -5,15 +5,78 @@ End-to-end MLOps pipeline for training and deploying a ticket urgency classifica
 ## 📋 Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Prerequisites](#prerequisites)
-3. [GCP Setup](#gcp-setup)
-4. [Local Development Setup](#local-development-setup)
-5. [Running Airflow & MLflow](#running-airflow--mlflow)
-6. [Running DAGs](#running-dags)
-7. [GitHub Actions CI/CD Setup](#github-actions-cicd-setup)
-8. [Testing the Workflow](#testing-the-workflow)
-9. [Project Structure](#project-structure)
+2. [Project Structure](#project-structure)
+3. [Prerequisites](#prerequisites)
+4. [GCP Setup](#gcp-setup)
+5. [Local Development Setup](#local-development-setup)
+6. [Running Airflow & MLflow](#running-airflow--mlflow)
+7. [Running DAGs](#running-dags)
+8. [GitHub Actions CI/CD Setup](#github-actions-cicd-setup)
+9. [Testing the Workflow](#testing-the-workflow)
 10. [Troubleshooting](#troubleshooting)
+
+---
+
+## 📁 Project Structure
+
+```
+.
+├── dags/                         # Airflow DAG definitions
+│   ├── train_model.py            # Training DAG (PythonOperator + BashOperator examples)
+│   └── monitor_model.py          # Monitoring DAG (data drift detection)
+│
+├── scripts/                      # Training / deployment / monitoring scripts
+│   ├── train.py                  # Main training script (loads from GCS, trains, uploads model)
+│   ├── monitor_model.py          # Monitoring script (API health, drift detection)
+│   ├── upload_data_to_gcs.py     # Data upload utility (reference + new + combined)
+│   ├── evaluate_on_new_data.py   # Model evaluation on new production data
+│   ├── preprocess.py             # (Reserved for additional preprocessing)
+│   └── deploy_to_cloudrun.sh     # Manual deployment script (alternative to CI/CD)
+│
+├── models/                       # Local model storage (created after training)
+│   └── ticket_urgency_model.pkl  # Trained model file (saved locally, also uploaded to GCS)
+│
+├── logs/                         # Airflow task execution logs
+│   └── dag_id=*/task_id=*/       # Logs organized by DAG and task
+│
+├── mlflow/                       # MLflow backend storage
+│   └── mlflow.db                 # SQLite database for MLflow tracking
+│
+├── mlruns/                       # MLflow experiment runs
+│   └── 1/                        # Experiment runs organized by experiment ID
+│
+├── api/                          # Model serving API (deployed to Cloud Run)
+│   ├── app.py                    # FastAPI application (predict, health, reload-model endpoints)
+│   ├── Dockerfile                # API container image definition
+│   └── requirements.txt          # API dependencies (FastAPI, scikit-learn, etc.)
+│
+├── data/                         # Local data files
+│   └── raw/
+│       ├── tickets.csv           # Training/reference data (500 rows)
+│       └── new_tickets.csv      # New production data (for drift testing)
+│
+├── docs/                         # Documentation files (all .md guides)
+│   └── ...                       # Detailed guides (see docs/ folder for full list)
+│
+├── .github/
+│   └── workflows/
+│       └── deploy.yml            # CI/CD workflow (builds & deploys API to Cloud Run)
+│
+├── docker-compose.yaml           # Local development stack (Airflow + PostgreSQL + MLflow)
+├── Dockerfile                    # Airflow image definition (installs Python packages)
+├── fernet.py                     # Fernet key helper (for Airflow encryption)
+├── service-acc-key.json          # GCP service account key (NOT in git - .gitignore)
+└── README.md                     # This file - complete setup guide
+```
+
+### Key Directories Explained
+
+- **`dags/`**: Airflow workflow definitions. Each `.py` file becomes a DAG in Airflow UI.
+- **`scripts/`**: Python scripts executed by DAGs. Contains training, monitoring, and utility scripts.
+- **`api/`**: FastAPI service code. Deployed to Cloud Run via GitHub Actions.
+- **`data/`**: Local training data. Can be uploaded to GCS using `upload_data_to_gcs.py`.
+- **`docs/`**: All documentation files organized in one place.
+- **`.github/workflows/`**: GitHub Actions CI/CD pipeline definition.
 
 ---
 
@@ -453,40 +516,6 @@ curl -X POST https://<your-service-url>/reload-model -H "Content-Length: 0"
 
 ---
 
-## 📁 Project Structure
-
-```
-.
-├── dags/                         # Airflow DAG definitions
-│   ├── train_model.py            # Training DAG
-│   └── monitor_model.py          # Monitoring DAG
-├── scripts/                      # Training / deployment / monitoring scripts
-│   ├── train.py                  # Main training script
-│   ├── monitor_model.py          # Monitoring script
-│   ├── upload_data_to_gcs.py    # Data upload utility
-│   └── evaluate_on_new_data.py  # Model evaluation script
-├── api/                          # Model serving API (Cloud Run)
-│   ├── app.py                    # FastAPI application
-│   ├── Dockerfile                # API container image
-│   └── requirements.txt          # API dependencies
-├── data/                         # Local data
-│   └── raw/
-│       ├── tickets.csv           # Training data
-│       └── new_tickets.csv       # New data for drift testing
-├── docs/                         # Documentation files
-│   ├── DEPLOYMENT_ROADMAP.md     # Detailed deployment guide
-│   ├── GITHUB_SETUP_GUIDE.md     # GitHub Actions setup
-│   └── ...                       # Other documentation
-├── .github/
-│   └── workflows/
-│       └── deploy.yml            # CI/CD workflow
-├── docker-compose.yaml           # Local development stack
-├── Dockerfile                    # Airflow image definition
-├── service-acc-key.json          # GCP credentials (NOT in git)
-└── README.md                     # This file
-```
-
----
 
 ## 🔧 Troubleshooting
 
