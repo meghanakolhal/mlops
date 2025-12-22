@@ -62,9 +62,9 @@ def download_model_from_gcs(force_reload: bool = False):
     if not force_reload and os.path.exists(MODEL_CACHE_PATH):
         logger.info(f"Loading model from cache: {MODEL_CACHE_PATH}")
         try:
-            model = joblib.load(MODEL_CACHE_PATH)
+        model = joblib.load(MODEL_CACHE_PATH)
             logger.info("Model loaded from cache successfully")
-            return
+        return
         except Exception as e:
             logger.warning(f"Failed to load cached model: {e}. Will download from GCS.")
             os.remove(MODEL_CACHE_PATH)  # Remove corrupted cache
@@ -108,7 +108,7 @@ async def startup_event():
     """Load model when service starts."""
     logger.info("Starting up... Loading model from GCS")
     try:
-        download_model_from_gcs()
+    download_model_from_gcs()
         logger.info("✅ Model loaded successfully")
     except Exception as e:
         logger.error(f"⚠️ Model loading failed on startup: {e}")

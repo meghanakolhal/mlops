@@ -218,8 +218,8 @@ gcloud artifacts repositories list --location=asia-south1
 
 ### Step 1: Clone Repository
 
-```bash
-git clone https://github.com/meghanakolhal/mlops.git
+   ```bash
+   git clone https://github.com/meghanakolhal/mlops.git
 cd mlops/airflow
 ```
 
@@ -254,9 +254,9 @@ docker compose config
 
 ### Step 1: Start Services
 
-```bash
+   ```bash
 # Start all services (postgres, airflow, mlflow)
-docker compose up -d --build
+   docker compose up -d --build
 
 # Check services are running
 docker compose ps

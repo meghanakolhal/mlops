@@ -175,12 +175,12 @@ def main():
             
             # Compare distributions only if new data exists
             drift_detected, drift_report = check_data_drift(reference_data, new_data)
-            
-            if drift_detected:
-                print("⚠️  Data drift detected!")
-                print(json.dumps(drift_report, indent=2))
-            else:
-                print("✅ No significant data drift detected")
+        
+        if drift_detected:
+            print("⚠️  Data drift detected!")
+            print(json.dumps(drift_report, indent=2))
+        else:
+            print("✅ No significant data drift detected")
         except FileNotFoundError:
             print(f"ℹ️  New data not found at gs://{BUCKET_NAME}/{NEW_DATA_GCS_PATH}")
             print("   Skipping drift check (upload new_tickets.csv to GCS to test drift detection)")
