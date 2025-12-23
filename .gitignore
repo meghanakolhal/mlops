@@ -14,7 +14,7 @@ logs/
 *.log
 airflow.db
 airflow.cfg
-
+reports/
 # MLflow
 mlruns/
 mlflow.db
